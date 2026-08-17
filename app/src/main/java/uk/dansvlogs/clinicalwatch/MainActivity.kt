@@ -1,11 +1,11 @@
 package uk.dansvlogs.clinicalwatch
 
-import android.app.Activity
 import android.os.Bundle
 import android.view.WindowManager
+import androidx.fragment.app.FragmentActivity
 import androidx.wear.ambient.AmbientModeSupport
 
-class MainActivity : Activity(), AmbientModeSupport.AmbientCallbackProvider {
+class MainActivity : FragmentActivity(), AmbientModeSupport.AmbientCallbackProvider {
     private lateinit var watchView: ClinicalWatchView
 
     override fun onCreate(savedInstanceState: Bundle?) {
