@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ClinicalWatch"
 include(":app")
+include(":phone")
