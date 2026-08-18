@@ -11,8 +11,8 @@ android {
         applicationId = "uk.dansvlogs.clinicalwatch"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
     }
 
     buildTypes {
@@ -34,4 +34,5 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("androidx.fragment:fragment-ktx:1.8.8")
     implementation("androidx.wear:wear:1.3.0")
+    implementation("com.google.android.gms:play-services-wearable:19.0.0")
 }
