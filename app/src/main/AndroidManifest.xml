@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.hardware.type.watch" android:required="true" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
 
     <application
         android:allowBackup="false"
-        android:label="Clinical Watch"
+        android:label="Clinical Watch V2"
         android:theme="@style/AppTheme">
         <activity
             android:name=".MainActivity"
