@@ -4,9 +4,9 @@ import android.Manifest
 import android.content.*
 import android.content.pm.PackageManager
 import android.graphics.*
+import android.graphics.drawable.Drawable
 import android.hardware.*
 import android.os.*
-import android.util.Base64
 import android.view.*
 import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
@@ -14,47 +14,114 @@ import java.util.*
 import kotlin.math.*
 
 class ClinicalWatchView(context: Context) : View(context), SensorEventListener {
- private val p=Paint(Paint.ANTI_ALIAS_FLAG); private val h=Handler(Looper.getMainLooper()); private val sm=context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
- private val counter=sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER); private val detector=sm.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR); private val hr=sm.getDefaultSensor(Sensor.TYPE_HEART_RATE)
- private val prefs=context.getSharedPreferences("clinical_v4",Context.MODE_PRIVATE); private var ambient=false; private var battery=0; private var steps:Long?=null; private var pulse:Int?=null; private var counterSeen=false
- private var mode=0; private var running=false; private var base=0L; private var elapsed=0L
- private val lime=Color.rgb(185,232,0); private val ivory=Color.rgb(235,239,218); private val steel=Color.rgb(104,108,104); private val dark=Color.rgb(4,6,5); private val panel=Color.rgb(8,10,9)
- private val logo:Bitmap? by lazy { try { val b=Base64.decode(CrestData.PNG_BASE64.trim(),Base64.DEFAULT); BitmapFactory.decodeByteArray(b,0,b.size) } catch(_:Throwable){null} }
- private val ticker=object:Runnable{override fun run(){invalidate();h.postDelayed(this,if(mode==1&&running&&!ambient)100 else 1000)}}
- private val gd=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){override fun onDown(e:MotionEvent)=true;override fun onDoubleTap(e:MotionEvent):Boolean{val dx=e.x-width/2f;val dy=e.y-height/2f;if(dx*dx+dy*dy<(min(width,height)*.34f).pow(2)){mode=1-mode;restart();return true};return false}})
- private val br=object:BroadcastReceiver(){override fun onReceive(c:Context?,i:Intent?){val l=i?.getIntExtra(BatteryManager.EXTRA_LEVEL,-1)?:-1;val s=i?.getIntExtra(BatteryManager.EXTRA_SCALE,-1)?:-1;if(l>=0&&s>0)battery=l*100/s}}
- init{context.registerReceiver(br,IntentFilter(Intent.ACTION_BATTERY_CHANGED));h.post(ticker)}
- fun setAmbient(v:Boolean){ambient=v;restart()}
- private fun day()=SimpleDateFormat("yyyyMMdd",Locale.US).format(Date())
- fun startSensors(){if(ContextCompat.checkSelfPermission(context,Manifest.permission.ACTIVITY_RECOGNITION)==PackageManager.PERMISSION_GRANTED){val d=day();if(prefs.getString("dd","")!=d)prefs.edit().putString("dd",d).putLong("ds",0).apply();steps=prefs.getLong("ds",0);counter?.let{sm.registerListener(this,it,SensorManager.SENSOR_DELAY_NORMAL)};detector?.let{sm.registerListener(this,it,SensorManager.SENSOR_DELAY_NORMAL)}};val body=ContextCompat.checkSelfPermission(context,Manifest.permission.BODY_SENSORS)==PackageManager.PERMISSION_GRANTED;val health=if(Build.VERSION.SDK_INT>=36)ContextCompat.checkSelfPermission(context,"android.permission.health.READ_HEART_RATE")==PackageManager.PERMISSION_GRANTED else true;if(body||health)hr?.let{sm.registerListener(this,it,SensorManager.SENSOR_DELAY_NORMAL)}}
- fun stopSensors(){}
- override fun onSensorChanged(e:SensorEvent){when(e.sensor.type){Sensor.TYPE_STEP_COUNTER->{counterSeen=true;val raw=e.values[0].toLong();val d=day();var z=prefs.getLong("cz",-1);if(prefs.getString("cd","")!=d||z<0||raw<z){z=raw;prefs.edit().putString("cd",d).putLong("cz",z).apply()};steps=(raw-z).coerceAtLeast(0)};Sensor.TYPE_STEP_DETECTOR->{if(!counterSeen||steps==null||steps==0L){val d=day();var n=if(prefs.getString("dd","")==d)prefs.getLong("ds",0) else 0;n+=(e.values.firstOrNull()?.roundToLong()?:1).coerceAtLeast(1);prefs.edit().putString("dd",d).putLong("ds",n).apply();steps=n}};Sensor.TYPE_HEART_RATE->{val v=e.values[0].roundToInt();if(v in 25..240)pulse=v}};invalidate()}
- override fun onAccuracyChanged(s:Sensor?,a:Int){}
- private fun restart(){h.removeCallbacks(ticker);h.post(ticker)}
- override fun onTouchEvent(e:MotionEvent):Boolean{if(gd.onTouchEvent(e))return true;if(e.action==MotionEvent.ACTION_UP&&mode==1&&!ambient&&e.y>height*.66f&&e.y<height*.89f){if(e.x<width/2)toggle()else reset();return true};return true}
- private fun toggle(){if(running){elapsed=nowElapsed();running=false}else{base=SystemClock.elapsedRealtime()-elapsed;running=true};restart()};private fun reset(){running=false;elapsed=0;base=SystemClock.elapsedRealtime();restart()};private fun nowElapsed()=if(running)SystemClock.elapsedRealtime()-base else elapsed
- override fun onDetachedFromWindow(){sm.unregisterListener(this);h.removeCallbacks(ticker);try{context.unregisterReceiver(br)}catch(_:Exception){};super.onDetachedFromWindow()}
- override fun onDraw(c:Canvas){c.drawColor(Color.BLACK);val cx=width/2f;val cy=height/2f;val r=min(width,height)*.498f;dial(c,cx,cy,r);if(mode==0)clock(c,cx,cy,r)else stopwatch(c,cx,cy,r)}
- private fun dial(c:Canvas,cx:Float,cy:Float,r:Float){
-  p.style=Paint.Style.FILL;p.shader=RadialGradient(cx,cy,r*.95f,intArrayOf(Color.rgb(15,17,16),Color.rgb(4,5,5),Color.BLACK),floatArrayOf(0f,.72f,1f),Shader.TileMode.CLAMP);c.drawCircle(cx,cy,r*.97f,p);p.shader=null
-  p.style=Paint.Style.STROKE;for((rad,w,col) in listOf(Triple(.945f,.018f,Color.rgb(76,80,77)),Triple(.915f,.030f,Color.rgb(12,14,13)),Triple(.855f,.010f,Color.rgb(65,69,66)))){p.color=col;p.strokeWidth=r*w;c.drawCircle(cx,cy,r*rad,p)}
-  for(i in 0 until 60){val a=Math.toRadians((i*6-90).toDouble());val major=i%5==0;val quarter=i%15==0;val o=r*.91f;val inn=o-r*(if(major).085f else .038f);p.color=if(quarter&&!ambient)lime else if(major)ivory else Color.rgb(205,208,203);p.strokeWidth=r*(if(major).025f else .007f);p.strokeCap=Paint.Cap.SQUARE;c.drawLine(cx+cos(a).toFloat()*inn,cy+sin(a).toFloat()*inn,cx+cos(a).toFloat()*o,cy+sin(a).toFloat()*o,p)}
-  for(i in 0 until 12) marker(c,cx,cy,r,i)
-  val rr=r*.79f;txt(c,"60",cx,cy-rr+r*.025f,r*.088f,lime);txt(c,"15",cx+rr,cy+r*.025f,r*.08f,lime);txt(c,"30",cx,cy+rr+r*.025f,r*.08f,lime);txt(c,"45",cx-rr,cy+r*.025f,r*.08f,lime)
-  val nums=listOf(55 to 11,5 to 1,10 to 2,20 to 4,25 to 5,35 to 7,40 to 8,50 to 10);for((n,pos) in nums){val a=Math.toRadians((pos*30-90).toDouble());txt(c,n.toString().padStart(2,'0'),cx+cos(a).toFloat()*r*.825f,cy+sin(a).toFloat()*r*.825f+r*.025f,r*.055f,Color.LTGRAY)}
- }
- private fun marker(c:Canvas,cx:Float,cy:Float,r:Float,i:Int){val a=Math.toRadians((i*30-90).toDouble());val x=cx+cos(a).toFloat()*r*.73f;val y=cy+sin(a).toFloat()*r*.73f;c.save();c.rotate(i*30f,x,y);p.style=Paint.Style.FILL;p.color=Color.rgb(20,22,21);c.drawRoundRect(x-r*.045f,y-r*.09f,x+r*.045f,y+r*.09f,r*.012f,r*.012f,p);p.color=ivory;c.drawRoundRect(x-r*.027f,y-r*.068f,x+r*.027f,y+r*.068f,r*.007f,r*.007f,p);p.style=Paint.Style.STROKE;p.color=if(i%3==0)lime else steel;p.strokeWidth=r*.008f;c.drawRoundRect(x-r*.032f,y-r*.073f,x+r*.032f,y+r*.073f,r*.008f,r*.008f,p);c.restore()}
- private fun crest(c:Canvas,cx:Float,top:Float,r:Float){val b=logo;if(b!=null){val hh=r*.34f;val ww=hh*b.width/b.height.toFloat();p.alpha=255;c.drawBitmap(b,null,RectF(cx-ww/2,top,cx+ww/2,top+hh),p)}else txt(c,"CREST ERROR",cx,top+r*.13f,r*.04f,Color.RED)}
- private fun clock(c:Canvas,cx:Float,cy:Float,r:Float){val cal=Calendar.getInstance();val s=cal.get(Calendar.SECOND);val m=cal.get(Calendar.MINUTE);val hrn=cal.get(Calendar.HOUR);if(!ambient){crest(c,cx,cy-r*.73f,r);txt(c,"PARAMEDIC",cx,cy-r*.35f,r*.063f,Color.LTGRAY);txt(c,"DAN",cx,cy-r*.255f,r*.095f,lime);instrumentPanel(c,cx-r*.55f,cy-r*.005f,"STEPS",steps?.let{"%,d".format(it)}?:"--",false);instrumentPanel(c,cx+r*.55f,cy-r*.005f,"PULSE",pulse?.toString()?:"--",true);digital(c,cx,cy+r*.31f,SimpleDateFormat("HH:mm:ss",Locale.getDefault()).format(Date()),SimpleDateFormat("EEE  d MMM yyyy",Locale.getDefault()).format(Date()).uppercase(Locale.getDefault()));batteryStrip(c,cx,cy+r*.69f,r)};val mv=m+s/60f;hand(c,cx,cy,r*.43f,(hrn+mv/60)*30,r*.078f);hand(c,cx,cy,r*.65f,mv*6,r*.055f);second(c,cx,cy,r,s*6f);hub(c,cx,cy,r)}
- private fun stopwatch(c:Canvas,cx:Float,cy:Float,r:Float){val e=nowElapsed();val sec=e/1000;val t=(e/100)%10;val ss=sec%60;val mm=(sec/60)%60;val hh=sec/3600;if(!ambient){crest(c,cx,cy-r*.73f,r);txt(c,"PARAMEDIC",cx,cy-r*.35f,r*.063f,Color.LTGRAY);txt(c,"DAN",cx,cy-r*.255f,r*.095f,lime);txt(c,"STOPWATCH",cx,cy-r*.005f,r*.057f,Color.LTGRAY);digital(c,cx,cy+r*.22f,String.format(Locale.getDefault(),"%02d:%02d:%02d.%d",hh,mm,ss,t),"HR       MIN       SEC       1/10");button(c,cx-r*.30f,cy+r*.57f,r*.27f,if(running)"❚❚  PAUSE" else "▶  START");button(c,cx+r*.30f,cy+r*.57f,r*.27f,"↻  RESET")}else txt(c,String.format(Locale.getDefault(),"%02d:%02d:%02d",hh,mm,ss),cx,cy+r*.25f,r*.12f,ivory);second(c,cx,cy,r,(sec%60)*6f);hub(c,cx,cy,r)}
- private fun instrumentPanel(c:Canvas,x:Float,y:Float,title:String,value:String,heart:Boolean){val r=min(width,height)*.498f;val q=Path();if(x<width/2){q.moveTo(x-r*.27f,y-r*.19f);q.lineTo(x+r*.15f,y-r*.19f);q.lineTo(x+r*.26f,y-r*.08f);q.lineTo(x+r*.26f,y+r*.19f);q.lineTo(x-r*.27f,y+r*.19f)}else{q.moveTo(x+r*.27f,y-r*.19f);q.lineTo(x-r*.15f,y-r*.19f);q.lineTo(x-r*.26f,y-r*.08f);q.lineTo(x-r*.26f,y+r*.19f);q.lineTo(x+r*.27f,y+r*.19f)};q.close();p.style=Paint.Style.FILL;p.color=panel;c.drawPath(q,p);p.style=Paint.Style.STROKE;p.strokeWidth=r*.018f;p.color=Color.rgb(27,30,28);c.drawPath(q,p);p.strokeWidth=r*.007f;p.color=Color.rgb(82,86,82);c.drawPath(q,p);txt(c,if(heart)"♥" else "⌁",x,y-r*.105f,r*.075f,lime);txt(c,title,x,y-r*.02f,r*.055f,Color.LTGRAY);txt(c,value,x,y+r*.105f,r*.11f,lime);if(heart)txt(c,"BPM",x,y+r*.17f,r*.045f,Color.LTGRAY)else stepBars(c,x,y+r*.16f,r)}
- private fun stepBars(c:Canvas,x:Float,y:Float,r:Float){val n=((steps?:0L)/2000L).toInt().coerceIn(0,6);for(i in 0 until 6){p.style=Paint.Style.FILL;p.color=if(i<n)lime else Color.rgb(32,35,33);c.drawRect(x-r*.16f+i*r*.055f,y-r*.025f,x-r*.12f+i*r*.055f,y+r*.025f,p)}}
- private fun digital(c:Canvas,x:Float,y:Float,v:String,sub:String){val r=min(width,height)*.498f;val q=Path();q.moveTo(x-r*.48f,y-r*.18f);q.lineTo(x+r*.48f,y-r*.18f);q.lineTo(x+r*.55f,y-r*.09f);q.lineTo(x+r*.55f,y+r*.15f);q.lineTo(x+r*.48f,y+r*.21f);q.lineTo(x-r*.48f,y+r*.21f);q.lineTo(x-r*.55f,y+r*.15f);q.lineTo(x-r*.55f,y-r*.09f);q.close();p.style=Paint.Style.FILL;p.color=Color.rgb(2,4,3);c.drawPath(q,p);p.style=Paint.Style.STROKE;p.strokeWidth=r*.016f;p.color=Color.rgb(27,30,28);c.drawPath(q,p);p.strokeWidth=r*.006f;p.color=Color.rgb(116,143,4);c.drawPath(q,p);txt(c,v,x,y+r*.035f,r*.145f,ivory);if(sub.isNotEmpty())txt(c,sub,x,y+r*.16f,r*.043f,Color.LTGRAY)}
- private fun batteryStrip(c:Canvas,cx:Float,y:Float,r:Float){txt(c,"WATCH",cx-r*.23f,y-r*.035f,r*.042f,Color.LTGRAY);battery(c,cx-r*.23f,y+r*.035f,r,battery);txt(c,"PHONE",cx+r*.23f,y-r*.035f,r*.042f,Color.LTGRAY);battery(c,cx+r*.23f,y+r*.035f,r,0);txt(c,"✚",cx,y+r*.035f,r*.11f,lime)}
- private fun battery(c:Canvas,x:Float,y:Float,r:Float,n:Int){p.style=Paint.Style.STROKE;p.strokeWidth=r*.008f;p.color=lime;c.drawRoundRect(x-r*.10f,y-r*.035f,x+r*.08f,y+r*.035f,r*.008f,r*.008f,p);c.drawRect(x+r*.08f,y-r*.015f,x+r*.10f,y+r*.015f,p);p.style=Paint.Style.FILL;val fill=(n.coerceIn(0,100)/100f)*r*.16f;c.drawRect(x-r*.085f,y-r*.02f,x-r*.085f+fill,y+r*.02f,p);txt(c,if(n>0)"$n%" else "--",x,y+r*.095f,r*.045f,lime)}
- private fun button(c:Canvas,x:Float,y:Float,hw:Float,s:String){val r=min(width,height)*.498f;p.style=Paint.Style.FILL;p.color=Color.rgb(12,15,13);c.drawRoundRect(x-hw,y-r*.13f,x+hw,y+r*.13f,r*.035f,r*.035f,p);p.style=Paint.Style.STROKE;p.strokeWidth=r*.018f;p.color=Color.rgb(30,33,31);c.drawRoundRect(x-hw,y-r*.13f,x+hw,y+r*.13f,r*.035f,r*.035f,p);p.strokeWidth=r*.006f;p.color=Color.rgb(85,89,85);c.drawRoundRect(x-hw+r*.018f,y-r*.112f,x+hw-r*.018f,y+r*.112f,r*.025f,r*.025f,p);txt(c,s,x,y+r*.025f,r*.06f,lime)}
- private fun txt(c:Canvas,s:String,x:Float,y:Float,size:Float,col:Int){p.shader=null;p.style=Paint.Style.FILL;p.typeface=Typeface.create(Typeface.SANS_SERIF,Typeface.BOLD);p.textAlign=Paint.Align.CENTER;p.textSize=size;p.color=col;p.setShadowLayer(if(ambient)0f else size*.08f,0f,size*.03f,Color.BLACK);c.drawText(s,x,y,p);p.clearShadowLayer()}
- private fun hand(c:Canvas,cx:Float,cy:Float,len:Float,d:Float,w:Float){val a=Math.toRadians((d-90).toDouble());val ex=cx+cos(a).toFloat()*len;val ey=cy+sin(a).toFloat()*len;p.style=Paint.Style.STROKE;p.strokeCap=Paint.Cap.SQUARE;p.strokeWidth=w*1.25f;p.color=Color.BLACK;c.drawLine(cx,cy,ex,ey,p);p.strokeWidth=w;p.color=Color.rgb(67,72,69);c.drawLine(cx,cy,ex,ey,p);p.strokeWidth=w*.58f;p.color=ivory;c.drawLine(cx,cy,ex,ey,p);p.strokeWidth=w*.12f;p.color=Color.WHITE;c.drawLine(cx,cy,ex,ey,p)}
- private fun second(c:Canvas,cx:Float,cy:Float,r:Float,d:Float){val a=Math.toRadians((d-90).toDouble());p.style=Paint.Style.STROKE;p.strokeCap=Paint.Cap.ROUND;p.color=if(ambient)ivory else lime;p.strokeWidth=r*.014f;p.setShadowLayer(if(ambient)0f else r*.025f,0f,0f,lime);c.drawLine(cx-cos(a).toFloat()*r*.13f,cy-sin(a).toFloat()*r*.13f,cx+cos(a).toFloat()*r*.86f,cy+sin(a).toFloat()*r*.86f,p);p.clearShadowLayer()}
- private fun hub(c:Canvas,cx:Float,cy:Float,r:Float){p.style=Paint.Style.FILL;p.color=Color.rgb(22,25,23);c.drawCircle(cx,cy,r*.062f,p);p.color=Color.BLACK;c.drawCircle(cx,cy,r*.043f,p);p.style=Paint.Style.STROKE;p.color=if(ambient)ivory else lime;p.strokeWidth=r*.016f;c.drawCircle(cx,cy,r*.043f,p)}
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val handler = Handler(Looper.getMainLooper())
+    private val sensors = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    private val heart = sensors.getDefaultSensor(Sensor.TYPE_HEART_RATE)
+    private var ambient = false
+    private var watchBattery = 0
+    private var steps: Long? = null
+    private var pulse: Int? = null
+    private var mode = 0
+    private var running = false
+    private var stopwatchBase = 0L
+    private var stopwatchElapsed = 0L
+    private val accent = Color.rgb(190, 235, 0)
+    private val text = Color.rgb(238, 241, 229)
+    private val crest: Drawable? by lazy { ContextCompat.getDrawable(context, R.drawable.crest) }
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            invalidate()
+            handler.postDelayed(this, if (mode == 1 && running && !ambient) 100 else 1000)
+        }
+    }
+    private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent) = true
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            val dx = e.x - width / 2f; val dy = e.y - height / 2f
+            if (dx * dx + dy * dy < (min(width, height) * .34f).pow(2)) { mode = 1 - mode; restart(); return true }
+            return false
+        }
+    })
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            val level = i?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = i?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+            if (level >= 0 && scale > 0) watchBattery = level * 100 / scale
+        }
+    }
+
+    init { context.registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED)); handler.post(ticker) }
+    fun setAmbient(value: Boolean) { ambient = value; restart() }
+    fun setExternalSteps(value: Long) { steps = value.coerceAtLeast(0); invalidate() }
+
+    fun startSensors() {
+        val body = ContextCompat.checkSelfPermission(context, Manifest.permission.BODY_SENSORS) == PackageManager.PERMISSION_GRANTED
+        val health = if (Build.VERSION.SDK_INT >= 36) ContextCompat.checkSelfPermission(context, "android.permission.health.READ_HEART_RATE") == PackageManager.PERMISSION_GRANTED else true
+        if (body || health) heart?.let { sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) }
+    }
+    fun stopSensors() {}
+    override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type == Sensor.TYPE_HEART_RATE) {
+            val value = event.values[0].roundToInt()
+            if (value in 25..240) pulse = value
+            invalidate()
+        }
+    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private fun restart() { handler.removeCallbacks(ticker); handler.post(ticker) }
+    private fun elapsed() = if (running) SystemClock.elapsedRealtime() - stopwatchBase else stopwatchElapsed
+    private fun toggleStopwatch() { if (running) { stopwatchElapsed = elapsed(); running = false } else { stopwatchBase = SystemClock.elapsedRealtime() - stopwatchElapsed; running = true }; restart() }
+    private fun resetStopwatch() { running = false; stopwatchElapsed = 0; stopwatchBase = SystemClock.elapsedRealtime(); restart() }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (gestures.onTouchEvent(e)) return true
+        if (e.action == MotionEvent.ACTION_UP && mode == 1 && !ambient && e.y > height * .66f && e.y < height * .89f) { if (e.x < width / 2) toggleStopwatch() else resetStopwatch(); return true }
+        return true
+    }
+    override fun onDetachedFromWindow() { sensors.unregisterListener(this); handler.removeCallbacks(ticker); try { context.unregisterReceiver(batteryReceiver) } catch (_: Exception) {}; super.onDetachedFromWindow() }
+
+    override fun onDraw(canvas: Canvas) {
+        canvas.drawColor(Color.BLACK); val cx = width / 2f; val cy = height / 2f; val r = min(width, height) * .495f
+        drawFace(canvas, cx, cy, r)
+        if (mode == 0) drawClock(canvas, cx, cy, r) else drawStopwatch(canvas, cx, cy, r)
+    }
+
+    private fun drawFace(c: Canvas, cx: Float, cy: Float, r: Float) {
+        paint.style = Paint.Style.FILL; paint.shader = RadialGradient(cx, cy, r, intArrayOf(Color.rgb(22,25,23), Color.rgb(6,8,7), Color.BLACK), floatArrayOf(0f,.72f,1f), Shader.TileMode.CLAMP); c.drawCircle(cx,cy,r*.97f,paint); paint.shader=null
+        paint.style=Paint.Style.STROKE; paint.color=Color.rgb(73,78,74); paint.strokeWidth=r*.018f; c.drawCircle(cx,cy,r*.925f,paint)
+        for(i in 0 until 60){ val a=Math.toRadians((i*6-90).toDouble()); val major=i%5==0; val outer=r*.91f; val inner=outer-r*(if(major).075f else .03f); paint.color=if(i%15==0&&!ambient)accent else if(major)text else Color.rgb(130,135,131); paint.strokeWidth=r*(if(major).022f else .006f); c.drawLine(cx+cos(a).toFloat()*inner,cy+sin(a).toFloat()*inner,cx+cos(a).toFloat()*outer,cy+sin(a).toFloat()*outer,paint) }
+    }
+
+    private fun drawCrest(c: Canvas, cx: Float, top: Float, r: Float) {
+        val d=crest ?: return; val hh=(r*.30f).toInt(); val ww=(hh*.80f).toInt(); d.setBounds((cx-ww/2).toInt(),top.toInt(),(cx+ww/2).toInt(),top.toInt()+hh); d.draw(c)
+    }
+
+    private fun drawClock(c: Canvas,cx:Float,cy:Float,r:Float){
+        val cal=Calendar.getInstance(); val sec=cal.get(Calendar.SECOND); val min=cal.get(Calendar.MINUTE); val hour=cal.get(Calendar.HOUR)
+        if(!ambient){
+            drawCrest(c,cx,cy-r*.76f,r); label(c,"PARAMEDIC • DAN",cx,cy-r*.39f,r*.055f,text)
+            infoCard(c,cx-r*.46f,cy-r*.03f,"STEPS",steps?.let{"%,d".format(it)}?:"--")
+            infoCard(c,cx+r*.46f,cy-r*.03f,"PULSE",pulse?.let{"$it BPM"}?:"--")
+            digital(c,cx,cy+r*.29f,SimpleDateFormat("HH:mm:ss",Locale.getDefault()).format(Date()),SimpleDateFormat("EEE  d MMM",Locale.getDefault()).format(Date()).uppercase(Locale.getDefault()))
+            label(c,"WATCH  $watchBattery%",cx,cy+r*.70f,r*.045f,accent)
+        }
+        val minute=min+sec/60f; hand(c,cx,cy,r*.42f,(hour+minute/60)*30,r*.074f); hand(c,cx,cy,r*.63f,minute*6,r*.05f); second(c,cx,cy,r,sec*6f); hub(c,cx,cy,r)
+    }
+
+    private fun drawStopwatch(c:Canvas,cx:Float,cy:Float,r:Float){
+        val ms=elapsed(); val total=ms/1000; val tenth=(ms/100)%10; val ss=total%60; val mm=(total/60)%60; val hh=total/3600
+        if(!ambient){ drawCrest(c,cx,cy-r*.76f,r); label(c,"STOPWATCH",cx,cy-r*.39f,r*.06f,text); digital(c,cx,cy+r*.15f,String.format(Locale.getDefault(),"%02d:%02d:%02d.%d",hh,mm,ss,tenth),"HOUR     MIN     SEC     1/10"); button(c,cx-r*.29f,cy+r*.53f,r*.25f,if(running)"PAUSE" else "START"); button(c,cx+r*.29f,cy+r*.53f,r*.25f,"RESET") }
+        second(c,cx,cy,r,(total%60)*6f); hub(c,cx,cy,r)
+    }
+
+    private fun infoCard(c:Canvas,x:Float,y:Float,title:String,value:String){ val r=min(width,height)*.495f; paint.style=Paint.Style.FILL;paint.color=Color.rgb(8,11,9);c.drawRoundRect(x-r*.25f,y-r*.15f,x+r*.25f,y+r*.15f,r*.035f,r*.035f,paint);paint.style=Paint.Style.STROKE;paint.color=Color.rgb(82,88,83);paint.strokeWidth=r*.007f;c.drawRoundRect(x-r*.25f,y-r*.15f,x+r*.25f,y+r*.15f,r*.035f,r*.035f,paint);label(c,title,x,y-r*.04f,r*.045f,Color.LTGRAY);label(c,value,x,y+r*.075f,r*.078f,accent) }
+    private fun digital(c:Canvas,x:Float,y:Float,value:String,sub:String){ val r=min(width,height)*.495f;paint.style=Paint.Style.FILL;paint.color=Color.rgb(2,5,3);c.drawRoundRect(x-r*.51f,y-r*.17f,x+r*.51f,y+r*.20f,r*.035f,r*.035f,paint);paint.style=Paint.Style.STROKE;paint.color=Color.rgb(110,137,5);paint.strokeWidth=r*.007f;c.drawRoundRect(x-r*.51f,y-r*.17f,x+r*.51f,y+r*.20f,r*.035f,r*.035f,paint);label(c,value,x,y+r*.025f,r*.14f,text);label(c,sub,x,y+r*.15f,r*.04f,Color.LTGRAY) }
+    private fun button(c:Canvas,x:Float,y:Float,half:Float,value:String){ val r=min(width,height)*.495f;paint.style=Paint.Style.FILL;paint.color=Color.rgb(12,15,13);c.drawRoundRect(x-half,y-r*.12f,x+half,y+r*.12f,r*.035f,r*.035f,paint);paint.style=Paint.Style.STROKE;paint.color=Color.rgb(82,88,83);paint.strokeWidth=r*.007f;c.drawRoundRect(x-half,y-r*.12f,x+half,y+r*.12f,r*.035f,r*.035f,paint);label(c,value,x,y+r*.022f,r*.06f,accent) }
+    private fun label(c:Canvas,s:String,x:Float,y:Float,size:Float,color:Int){paint.shader=null;paint.style=Paint.Style.FILL;paint.typeface=Typeface.create(Typeface.SANS_SERIF,Typeface.BOLD);paint.textAlign=Paint.Align.CENTER;paint.textSize=size;paint.color=color;c.drawText(s,x,y,paint)}
+    private fun hand(c:Canvas,cx:Float,cy:Float,len:Float,d:Float,w:Float){val a=Math.toRadians((d-90).toDouble());val ex=cx+cos(a).toFloat()*len;val ey=cy+sin(a).toFloat()*len;paint.style=Paint.Style.STROKE;paint.strokeCap=Paint.Cap.SQUARE;paint.strokeWidth=w*1.25f;paint.color=Color.BLACK;c.drawLine(cx,cy,ex,ey,paint);paint.strokeWidth=w;paint.color=Color.DKGRAY;c.drawLine(cx,cy,ex,ey,paint);paint.strokeWidth=w*.55f;paint.color=text;c.drawLine(cx,cy,ex,ey,paint)}
+    private fun second(c:Canvas,cx:Float,cy:Float,r:Float,d:Float){val a=Math.toRadians((d-90).toDouble());paint.style=Paint.Style.STROKE;paint.strokeCap=Paint.Cap.ROUND;paint.color=if(ambient)text else accent;paint.strokeWidth=r*.014f;c.drawLine(cx-cos(a).toFloat()*r*.12f,cy-sin(a).toFloat()*r*.12f,cx+cos(a).toFloat()*r*.85f,cy+sin(a).toFloat()*r*.85f,paint)}
+    private fun hub(c:Canvas,cx:Float,cy:Float,r:Float){paint.style=Paint.Style.FILL;paint.color=Color.BLACK;c.drawCircle(cx,cy,r*.052f,paint);paint.style=Paint.Style.STROKE;paint.color=if(ambient)text else accent;paint.strokeWidth=r*.014f;c.drawCircle(cx,cy,r*.042f,paint)}
 }
