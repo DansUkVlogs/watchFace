@@ -1,43 +1,251 @@
 package uk.dansvlogs.clinicalwatch
 
-import android.Manifest
 import android.content.*
-import android.content.pm.PackageManager
 import android.graphics.*
-import android.graphics.drawable.Drawable
-import android.hardware.*
 import android.os.*
 import android.util.Base64
-import android.view.*
+import android.view.View
 import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.*
 
-class ClinicalWatchView(context: Context) : View(context), SensorEventListener {
- private val p=Paint(Paint.ANTI_ALIAS_FLAG);private val h=Handler(Looper.getMainLooper());private val sm=context.getSystemService(Context.SENSOR_SERVICE) as SensorManager;private val hr=sm.getDefaultSensor(Sensor.TYPE_HEART_RATE);private val prefs=context.getSharedPreferences("companion",Context.MODE_PRIVATE)
- private var ambient=false;private var watchBattery=0;private var steps:Long?=null;private var phoneBattery:Int?=null;private var pulse:Int?=null;private var mode=0;private var running=false;private var base=0L;private var elapsed=0L;private var accent=Color.rgb(185,225,0);private val ivory=Color.rgb(242,244,222);private val white=Color.rgb(235,235,235);private var name="DAN";private var crestBitmap:Bitmap?=null;private var heartRegistered=false;private val crest:Drawable? by lazy{ContextCompat.getDrawable(context,R.drawable.crest)}
- private val dataReceiver=object:BroadcastReceiver(){override fun onReceive(c:Context?,i:Intent?){load();invalidate()}};private val batteryReceiver=object:BroadcastReceiver(){override fun onReceive(c:Context?,i:Intent?){val l=i?.getIntExtra(BatteryManager.EXTRA_LEVEL,-1)?:-1;val s=i?.getIntExtra(BatteryManager.EXTRA_SCALE,-1)?:-1;if(l>=0&&s>0)watchBattery=l*100/s}};private val tick=object:Runnable{override fun run(){invalidate();h.postDelayed(this,if(mode==1&&running&&!ambient)100 else 1000)}}
- private val gestures=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){override fun onDown(e:MotionEvent)=true;override fun onDoubleTap(e:MotionEvent):Boolean{val dx=e.x-width/2f;val dy=e.y-height/2f;if(dx*dx+dy*dy<(min(width,height)*.34f).pow(2)){mode=1-mode;restart();return true};return false}})
- init{context.registerReceiver(batteryReceiver,IntentFilter(Intent.ACTION_BATTERY_CHANGED));ContextCompat.registerReceiver(context,dataReceiver,IntentFilter("uk.dansvlogs.clinicalwatch.DATA_CHANGED"),ContextCompat.RECEIVER_NOT_EXPORTED);load();h.post(tick)}
- private fun load(){name=prefs.getString("name","DAN")?:"DAN";try{accent=Color.parseColor(prefs.getString("accent","#B9E100"))}catch(_:Throwable){};steps=prefs.getString("steps",null)?.toLongOrNull()?:steps;phoneBattery=prefs.getString("phoneBattery",null)?.toIntOrNull()?:phoneBattery;crestBitmap=try{prefs.getString("crest",null)?.let{val b=Base64.decode(it,Base64.DEFAULT);BitmapFactory.decodeByteArray(b,0,b.size)}}catch(_:Throwable){null}}
- fun setAmbient(v:Boolean){ambient=v;if(v)stopSensors()else startSensors();restart()};fun setExternalSteps(v:Long){steps=v.coerceAtLeast(0);invalidate()};fun startSensors(){if(heartRegistered)return;val body=ContextCompat.checkSelfPermission(context,Manifest.permission.BODY_SENSORS)==PackageManager.PERMISSION_GRANTED;val health=Build.VERSION.SDK_INT>=36&&ContextCompat.checkSelfPermission(context,"android.permission.health.READ_HEART_RATE")==PackageManager.PERMISSION_GRANTED;val ok=if(Build.VERSION.SDK_INT>=36)health else body;if(ok&&hr!=null)heartRegistered=sm.registerListener(this,hr,SensorManager.SENSOR_DELAY_NORMAL)};fun stopSensors(){if(heartRegistered){sm.unregisterListener(this,hr);heartRegistered=false}}
- override fun onSensorChanged(e:SensorEvent){if(e.sensor.type==Sensor.TYPE_HEART_RATE&&e.values.isNotEmpty()){val v=e.values[0].roundToInt();if(v in 25..240)pulse=v;invalidate()}};override fun onAccuracyChanged(s:Sensor?,a:Int){};private fun restart(){h.removeCallbacks(tick);h.post(tick)};private fun timeElapsed()=if(running)SystemClock.elapsedRealtime()-base else elapsed;private fun toggle(){if(running){elapsed=timeElapsed();running=false}else{base=SystemClock.elapsedRealtime()-elapsed;running=true};restart()};private fun reset(){running=false;elapsed=0;base=SystemClock.elapsedRealtime();restart()}
- override fun onTouchEvent(e:MotionEvent):Boolean{if(gestures.onTouchEvent(e))return true;if(e.action==MotionEvent.ACTION_UP&&mode==1&&!ambient&&e.y>height*.65f&&e.y<height*.9f){if(e.x<width/2)toggle()else reset();return true};return true};override fun onDetachedFromWindow(){stopSensors();h.removeCallbacks(tick);try{context.unregisterReceiver(batteryReceiver)}catch(_:Exception){};try{context.unregisterReceiver(dataReceiver)}catch(_:Exception){};super.onDetachedFromWindow()}
- override fun onDraw(c:Canvas){c.drawColor(Color.BLACK);val cx=width/2f;val cy=height/2f;val r=min(width,height)*.498f;drawFace(c,cx,cy,r);if(mode==0)drawClock(c,cx,cy,r)else drawStopwatch(c,cx,cy,r)}
- private fun drawFace(c:Canvas,cx:Float,cy:Float,r:Float){p.style=Paint.Style.FILL;p.shader=RadialGradient(cx,cy,r,intArrayOf(Color.rgb(28,29,28),Color.rgb(8,9,9),Color.BLACK),floatArrayOf(0f,.72f,1f),Shader.TileMode.CLAMP);c.drawCircle(cx,cy,r*.99f,p);p.shader=null;p.style=Paint.Style.STROKE;p.color=Color.rgb(62,64,62);p.strokeWidth=r*.018f;c.drawCircle(cx,cy,r*.958f,p);p.color=Color.rgb(20,21,20);p.strokeWidth=r*.040f;c.drawCircle(cx,cy,r*.925f,p);p.color=Color.rgb(95,98,94);p.strokeWidth=r*.005f;c.drawCircle(cx,cy,r*.892f,p);for(i in 0 until 60){val a=Math.toRadians((i*6-90).toDouble());val major=i%5==0;val o=r*.884f;val inn=o-r*(if(major).075f else .035f);p.color=if(i%15==0&&!ambient)accent else white;p.strokeWidth=r*(if(major).012f else .004f);p.strokeCap=Paint.Cap.SQUARE;c.drawLine(cx+cos(a).toFloat()*inn,cy+sin(a).toFloat()*inn,cx+cos(a).toFloat()*o,cy+sin(a).toFloat()*o,p);if(major&&!ambient){val n=if(i==0)"60" else "%02d".format(i);txt(c,n,cx+cos(a).toFloat()*r*.790f,cy+sin(a).toFloat()*r*.790f+r*.024f,r*.057f,if(i%15==0)accent else white,true)}}}
- private fun panel(c:Canvas,l:Float,t:Float,rr:Float,b:Float,green:Boolean=false){val cut=min(rr-l,b-t)*.12f;val path=Path().apply{moveTo(l+cut,t);lineTo(rr-cut,t);lineTo(rr,t+cut);lineTo(rr,b-cut);lineTo(rr-cut,b);lineTo(l+cut,b);lineTo(l,b-cut);lineTo(l,t+cut);close()};p.style=Paint.Style.FILL;p.color=Color.rgb(8,9,9);c.drawPath(path,p);p.style=Paint.Style.STROKE;p.strokeWidth=min(width,height)*.010f;p.color=Color.rgb(20,21,20);c.drawPath(path,p);p.strokeWidth=min(width,height)*.003f;p.color=if(green)accent else Color.rgb(100,103,99);c.drawPath(path,p)}
- private fun drawCrest(c:Canvas,cx:Float,top:Float,r:Float){crestBitmap?.let{val hh=r*.305f;val ww=hh*it.width/it.height.toFloat();c.drawBitmap(it,null,RectF(cx-ww/2,top,cx+ww/2,top+hh),p);return};crest?.let{val hh=(r*.305f).toInt();val ww=(hh*.82f).toInt();it.setBounds((cx-ww/2).toInt(),top.toInt(),(cx+ww/2).toInt(),top.toInt()+hh);it.draw(c)}}
- private fun drawClock(c:Canvas,cx:Float,cy:Float,r:Float){val cal=Calendar.getInstance();val sec=cal.get(Calendar.SECOND);val min=cal.get(Calendar.MINUTE);val hour=cal.get(Calendar.HOUR);if(!ambient){drawCrest(c,cx,cy-r*.735f,r);txt(c,"PARAMEDIC",cx,cy-r*.365f,r*.058f,white,true);txt(c,name.uppercase(Locale.getDefault()),cx,cy-r*.265f,r*.078f,accent,true);metric(c,cx-r*.535f,cy-r*.015f,true);metric(c,cx+r*.535f,cy-r*.015f,false);digital(c,cx,cy+r*.285f);battery(c,cx-r*.285f,cy+r*.705f,"WATCH",watchBattery);battery(c,cx+r*.285f,cy+r*.705f,"PHONE",phoneBattery);medicalStar(c,cx,cy+r*.705f,r*.085f)};val m=min+sec/60f;hand(c,cx,cy,r*.41f,(hour+m/60)*30,r*.073f);hand(c,cx,cy,r*.61f,m*6,r*.052f);second(c,cx,cy,r,sec*6f);hub(c,cx,cy,r)}
- private fun metric(c:Canvas,x:Float,y:Float,isSteps:Boolean){val r=min(width,height)*.498f;panel(c,x-r*.235f,y-r*.245f,x+r*.235f,y+r*.245f);if(isSteps){shoe(c,x,y-r*.145f,r*.072f);txt(c,"STEPS",x,y-r*.015f,r*.061f,white,true);txt(c,steps?.let{"%,d".format(it)}?:"--",x,y+r*.125f,r*.105f,accent,true);val prog=((steps?:0)%10000)/10000f;for(i in 0..6){p.style=Paint.Style.FILL;p.color=if(i/7f<=prog)accent else Color.rgb(50,52,50);c.drawRect(x-r*.165f+i*r*.049f,y+r*.180f,x-r*.128f+i*r*.049f,y+r*.218f,p)}}else{heartIcon(c,x,y-r*.145f,r*.075f);txt(c,"PULSE",x,y-r*.015f,r*.061f,white,true);txt(c,pulse?.toString()?:"--",x,y+r*.125f,r*.115f,accent,true);txt(c,"BPM",x,y+r*.220f,r*.057f,white,true)}}
- private fun digital(c:Canvas,x:Float,y:Float){val r=min(width,height)*.498f;panel(c,x-r*.455f,y-r*.205f,x+r*.455f,y+r*.220f,true);txt(c,"24H",x-r*.335f,y-r*.115f,r*.055f,accent,true);val now=Date();txt(c,SimpleDateFormat("HH:mm",Locale.getDefault()).format(now),x-r*.035f,y+r*.035f,r*.178f,ivory,true);txt(c,SimpleDateFormat(":ss",Locale.getDefault()).format(now),x+r*.285f,y+r*.040f,r*.095f,ivory,true);p.style=Paint.Style.STROKE;p.strokeWidth=r*.004f;p.color=Color.rgb(75,78,74);c.drawLine(x-r*.365f,y+r*.090f,x+r*.365f,y+r*.090f,p);txt(c,"▣  "+SimpleDateFormat("EEE",Locale.getDefault()).format(now).uppercase(Locale.getDefault()),x-r*.175f,y+r*.178f,r*.064f,accent,true);txt(c,SimpleDateFormat("d MMM yyyy",Locale.getDefault()).format(now).uppercase(Locale.getDefault()),x+r*.155f,y+r*.178f,r*.058f,white,true)}
- private fun battery(c:Canvas,x:Float,y:Float,label:String,v:Int?){val r=min(width,height)*.498f;txt(c,label,x,y-r*.075f,r*.042f,white,true);p.style=Paint.Style.STROKE;p.strokeWidth=r*.008f;p.color=accent;c.drawRoundRect(x-r*.105f,y-r*.030f,x+r*.075f,y+r*.035f,r*.007f,r*.007f,p);c.drawRect(x+r*.075f,y-r*.010f,x+r*.097f,y+r*.015f,p);if(v!=null){p.style=Paint.Style.FILL;p.color=accent;val w=r*.158f*(v.coerceIn(0,100)/100f);c.drawRect(x-r*.092f,y-r*.017f,x-r*.092f+w,y+r*.022f,p)};txt(c,v?.let{"$it%"}?:"--",x,y+r*.115f,r*.054f,accent,true)}
- private fun heartIcon(c:Canvas,x:Float,y:Float,s:Float){p.style=Paint.Style.STROKE;p.strokeWidth=s*.16f;p.strokeCap=Paint.Cap.ROUND;p.color=accent;val path=Path();path.moveTo(x-s*.8f,y);path.cubicTo(x-s*.9f,y-s*.65f,x-s*.15f,y-s*.9f,x,y-s*.35f);path.cubicTo(x+s*.15f,y-s*.9f,x+s*.9f,y-s*.65f,x+s*.8f,y);path.cubicTo(x+s*.55f,y+s*.45f,x,y+s*.8f,x,y+s*.8f);path.cubicTo(x,y+s*.8f,x-s*.55f,y+s*.45f,x-s*.8f,y);c.drawPath(path,p);val ecg=Path();ecg.moveTo(x-s*.72f,y);ecg.lineTo(x-s*.25f,y);ecg.lineTo(x-s*.08f,y-s*.30f);ecg.lineTo(x+s*.10f,y+s*.30f);ecg.lineTo(x+s*.28f,y);ecg.lineTo(x+s*.72f,y);c.drawPath(ecg,p)}
- private fun shoe(c:Canvas,x:Float,y:Float,s:Float){p.style=Paint.Style.STROKE;p.strokeWidth=s*.15f;p.strokeCap=Paint.Cap.ROUND;p.strokeJoin=Paint.Join.ROUND;p.color=accent;val q=Path();q.moveTo(x-s*.75f,y-s*.55f);q.lineTo(x-s*.38f,y-s*.15f);q.lineTo(x-s*.12f,y+s*.18f);q.cubicTo(x+s*.18f,y+s*.52f,x+s*.62f,y+s*.38f,x+s*.78f,y+s*.58f);q.lineTo(x+s*.62f,y+s*.78f);q.cubicTo(x+s*.10f,y+s*.70f,x-s*.35f,y+s*.45f,x-s*.72f,y+s*.15f);q.close();c.drawPath(q,p)}
- private fun medicalStar(c:Canvas,x:Float,y:Float,s:Float){p.style=Paint.Style.STROKE;p.strokeWidth=s*.11f;p.color=accent;val path=Path();for(i in 0 until 16){val a=Math.toRadians((-90+i*22.5));val rad=if(i%2==0)s else s*.48f;val xx=x+cos(a).toFloat()*rad;val yy=y+sin(a).toFloat()*rad;if(i==0)path.moveTo(xx,yy)else path.lineTo(xx,yy)};path.close();c.drawPath(path,p);txt(c,"⚕",x,y+s*.28f,s*1.10f,accent,true)}
- private fun drawStopwatch(c:Canvas,cx:Float,cy:Float,r:Float){val ms=timeElapsed();val total=ms/1000;val tenth=(ms/100)%10;val ss=total%60;val mm=(total/60)%60;val hh=total/3600;if(!ambient){drawCrest(c,cx,cy-r*.73f,r);txt(c,"PARAMEDIC",cx,cy-r*.37f,r*.058f,white,true);txt(c,name.uppercase(Locale.getDefault()),cx,cy-r*.27f,r*.078f,accent,true);panel(c,cx-r*.455f,cy-r*.05f,cx+r*.455f,cy+r*.38f,true);txt(c,String.format(Locale.getDefault(),"%02d:%02d:%02d.%d",hh,mm,ss,tenth),cx,cy+r*.17f,r*.120f,ivory,true);button(c,cx-r*.27f,cy+r*.50f,r*.23f,if(running)"PAUSE" else "START");button(c,cx+r*.27f,cy+r*.50f,r*.23f,"RESET");battery(c,cx-r*.29f,cy+r*.76f,"WATCH",watchBattery);battery(c,cx+r*.29f,cy+r*.76f,"PHONE",phoneBattery)};second(c,cx,cy,r,(total%60)*6f);hub(c,cx,cy,r)}
- private fun button(c:Canvas,x:Float,y:Float,w:Float,s:String){val r=min(width,height)*.498f;panel(c,x-w,y-r*.11f,x+w,y+r*.11f,true);txt(c,s,x,y+r*.025f,r*.060f,accent,true)}
- private fun txt(c:Canvas,s:String,x:Float,y:Float,z:Float,col:Int,bold:Boolean=false){p.shader=null;p.style=Paint.Style.FILL;p.typeface=Typeface.create("sans-serif-condensed",if(bold)Typeface.BOLD else Typeface.NORMAL);p.textAlign=Paint.Align.CENTER;p.textSize=z;p.color=col;c.drawText(s,x,y,p)}
- private fun hand(c:Canvas,cx:Float,cy:Float,len:Float,d:Float,w:Float){val a=Math.toRadians((d-90).toDouble());val ex=cx+cos(a).toFloat()*len;val ey=cy+sin(a).toFloat()*len;p.style=Paint.Style.STROKE;p.strokeCap=Paint.Cap.SQUARE;p.strokeWidth=w*1.55f;p.color=Color.BLACK;c.drawLine(cx,cy,ex,ey,p);p.strokeWidth=w*1.22f;p.color=Color.rgb(105,108,104);c.drawLine(cx,cy,ex,ey,p);p.strokeWidth=w*.78f;p.color=ivory;c.drawLine(cx,cy,ex,ey,p)}
- private fun second(c:Canvas,cx:Float,cy:Float,r:Float,d:Float){val a=Math.toRadians((d-90).toDouble());p.style=Paint.Style.STROKE;p.strokeCap=Paint.Cap.ROUND;p.color=if(ambient)ivory else accent;p.strokeWidth=r*.012f;c.drawLine(cx-cos(a).toFloat()*r*.13f,cy-sin(a).toFloat()*r*.13f,cx+cos(a).toFloat()*r*.82f,cy+sin(a).toFloat()*r*.82f,p)};private fun hub(c:Canvas,cx:Float,cy:Float,r:Float){p.style=Paint.Style.FILL;p.color=Color.rgb(18,19,18);c.drawCircle(cx,cy,r*.058f,p);p.style=Paint.Style.STROKE;p.color=accent;p.strokeWidth=r*.018f;c.drawCircle(cx,cy,r*.040f,p);p.style=Paint.Style.FILL;p.color=Color.BLACK;c.drawCircle(cx,cy,r*.018f,p)}
+class ClinicalWatchView(context: Context) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val handler = Handler(Looper.getMainLooper())
+    private val prefs = context.getSharedPreferences("companion", Context.MODE_PRIVATE)
+    private var ambient = false
+    private var watchBattery = 0
+    private var phoneBattery: Int? = null
+    private var name = "DAN"
+    private var accent = Color.rgb(185, 225, 0)
+    private val ivory = Color.rgb(244, 246, 235)
+    private var crestBitmap: Bitmap? = null
+
+    private val dataReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) { load(); invalidate() }
+    }
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            val level = i?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = i?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+            if (level >= 0 && scale > 0) watchBattery = level * 100 / scale
+            invalidate()
+        }
+    }
+    private val tick = object : Runnable {
+        override fun run() {
+            invalidate()
+            val delay = if (ambient) 60000L else 1000L
+            handler.postDelayed(this, delay)
+        }
+    }
+
+    init {
+        context.registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        ContextCompat.registerReceiver(context, dataReceiver, IntentFilter("uk.dansvlogs.clinicalwatch.DATA_CHANGED"), ContextCompat.RECEIVER_NOT_EXPORTED)
+        load()
+        handler.post(tick)
+    }
+
+    private fun load() {
+        name = prefs.getString("name", "DAN") ?: "DAN"
+        try { accent = Color.parseColor(prefs.getString("accent", "#B9E100")) } catch (_: Throwable) {}
+        phoneBattery = prefs.getString("phoneBattery", null)?.toIntOrNull() ?: phoneBattery
+        crestBitmap = try {
+            prefs.getString("crest", null)?.let {
+                val bytes = Base64.decode(it, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }
+        } catch (_: Throwable) { null }
+    }
+
+    fun setAmbient(value: Boolean) { ambient = value; restart() }
+    fun setExternalSteps(value: Long) { /* retained for MainActivity compatibility; fob face intentionally hides steps */ }
+    fun startSensors() { /* pulse intentionally removed from fob design */ }
+    fun stopSensors() { }
+    private fun restart() { handler.removeCallbacks(tick); handler.post(tick) }
+
+    override fun onDetachedFromWindow() {
+        handler.removeCallbacks(tick)
+        try { context.unregisterReceiver(batteryReceiver) } catch (_: Exception) {}
+        try { context.unregisterReceiver(dataReceiver) } catch (_: Exception) {}
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        canvas.drawColor(Color.BLACK)
+        val cx = width / 2f
+        val cy = height / 2f
+        val r = min(width, height) * .495f
+        drawBackground(canvas, cx, cy, r)
+        drawDial(canvas, cx, cy, r)
+        if (!ambient) drawInformation(canvas, cx, cy, r)
+        drawHands(canvas, cx, cy, r)
+    }
+
+    private fun drawBackground(c: Canvas, cx: Float, cy: Float, r: Float) {
+        paint.style = Paint.Style.FILL
+        paint.shader = RadialGradient(cx, cy, r, intArrayOf(Color.rgb(30,32,32), Color.rgb(12,13,14), Color.BLACK), floatArrayOf(0f,.72f,1f), Shader.TileMode.CLAMP)
+        c.drawCircle(cx, cy, r, paint)
+        paint.shader = null
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = r * .018f
+        paint.color = Color.rgb(72,76,76)
+        c.drawCircle(cx, cy, r * .955f, paint)
+        paint.strokeWidth = r * .004f
+        paint.color = Color.rgb(110,114,112)
+        c.drawCircle(cx, cy, r * .895f, paint)
+    }
+
+    private fun drawDial(c: Canvas, cx: Float, cy: Float, r: Float) {
+        for (i in 0 until 60) {
+            val a = Math.toRadians((i * 6 - 90).toDouble())
+            val major = i % 5 == 0
+            val cardinal = i % 15 == 0
+            val outer = r * .875f
+            val inner = outer - r * if (major) .085f else .035f
+            paint.style = Paint.Style.STROKE
+            paint.strokeCap = Paint.Cap.ROUND
+            paint.strokeWidth = r * if (major) .017f else .006f
+            paint.color = if (cardinal && !ambient) accent else ivory
+            c.drawLine(cx + cos(a).toFloat()*inner, cy + sin(a).toFloat()*inner, cx + cos(a).toFloat()*outer, cy + sin(a).toFloat()*outer, paint)
+        }
+    }
+
+    private fun drawInformation(c: Canvas, cx: Float, cy: Float, r: Float) {
+        // Custom name: the only branding text, deliberately isolated above the hands.
+        text(c, name.uppercase(Locale.getDefault()), cx, cy-r*.555f, r*.092f, ivory, true)
+
+        // Large central digital time. A dark glass capsule protects legibility from the analogue hands.
+        val top = cy + r*.185f
+        val bottom = cy + r*.485f
+        glassPanel(c, cx-r*.56f, top, cx+r*.56f, bottom, r*.055f)
+        val now = Date()
+        text(c, SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(now), cx, cy+r*.365f, r*.155f, ivory, true)
+
+        // Exact requested date format: TUE 18 AUG(08) 2026
+        val day = SimpleDateFormat("EEE", Locale.getDefault()).format(now).uppercase(Locale.getDefault())
+        val dd = SimpleDateFormat("dd", Locale.getDefault()).format(now)
+        val mon = SimpleDateFormat("MMM", Locale.getDefault()).format(now).uppercase(Locale.getDefault())
+        val mm = SimpleDateFormat("MM", Locale.getDefault()).format(now)
+        val yyyy = SimpleDateFormat("yyyy", Locale.getDefault()).format(now)
+        text(c, "$day $dd $mon($mm) $yyyy", cx, cy+r*.585f, r*.066f, ivory, true)
+
+        // Icon-only batteries. Left is a watch-shaped battery, right is a phone-shaped battery.
+        drawWatchBattery(c, cx-r*.37f, cy+r*.705f, r*.105f, watchBattery)
+        drawPhoneBattery(c, cx+r*.37f, cy+r*.705f, r*.105f, phoneBattery)
+    }
+
+    private fun glassPanel(c: Canvas, l: Float, t: Float, rr: Float, b: Float, radius: Float) {
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(225, 5, 7, 8)
+        c.drawRoundRect(l,t,rr,b,radius,radius,paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = radius*.08f
+        paint.color = Color.rgb(72,76,74)
+        c.drawRoundRect(l,t,rr,b,radius,radius,paint)
+        paint.strokeWidth = radius*.045f
+        paint.color = accent
+        c.drawRoundRect(l+radius*.12f,t+radius*.12f,rr-radius*.12f,b-radius*.12f,radius*.8f,radius*.8f,paint)
+    }
+
+    private fun drawWatchBattery(c: Canvas, x: Float, y: Float, s: Float, value: Int) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = s*.12f
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.color = ivory
+        c.drawRoundRect(x-s*.62f,y-s*.42f,x+s*.62f,y+s*.42f,s*.20f,s*.20f,paint)
+        c.drawLine(x-s*.30f,y-s*.68f,x+s*.30f,y-s*.68f,paint)
+        c.drawLine(x-s*.30f,y+s*.68f,x+s*.30f,y+s*.68f,paint)
+        c.drawLine(x-s*.30f,y-s*.68f,x-s*.30f,y-s*.43f,paint)
+        c.drawLine(x+s*.30f,y-s*.68f,x+s*.30f,y-s*.43f,paint)
+        c.drawLine(x-s*.30f,y+s*.43f,x-s*.30f,y+s*.68f,paint)
+        c.drawLine(x+s*.30f,y+s*.43f,x+s*.30f,y+s*.68f,paint)
+        fillBattery(c,x,y,s*.50f,s*.30f,value)
+    }
+
+    private fun drawPhoneBattery(c: Canvas, x: Float, y: Float, s: Float, value: Int?) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = s*.12f
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.color = ivory
+        c.drawRoundRect(x-s*.48f,y-s*.70f,x+s*.48f,y+s*.70f,s*.18f,s*.18f,paint)
+        c.drawCircle(x,y+s*.52f,s*.055f,paint)
+        fillBattery(c,x,y-s*.08f,s*.32f,s*.38f,value ?: 0)
+    }
+
+    private fun fillBattery(c: Canvas, x: Float, y: Float, halfW: Float, halfH: Float, value: Int) {
+        val pct = value.coerceIn(0,100)/100f
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(42,46,44)
+        c.drawRoundRect(x-halfW,y-halfH,x+halfW,y+halfH,halfH*.18f,halfH*.18f,paint)
+        if (pct > 0f) {
+            paint.color = accent
+            c.drawRoundRect(x-halfW,y-halfH,x-halfW+2f*halfW*pct,y+halfH,halfH*.18f,halfH*.18f,paint)
+        }
+    }
+
+    private fun drawHands(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val cal = Calendar.getInstance()
+        val sec = cal.get(Calendar.SECOND)
+        val min = cal.get(Calendar.MINUTE)
+        val hour = cal.get(Calendar.HOUR)
+        val minuteAngle = (min + sec/60f) * 6f
+        val hourAngle = (hour + min/60f) * 30f
+        hand(c,cx,cy,r*.44f,hourAngle,r*.072f)
+        hand(c,cx,cy,r*.65f,minuteAngle,r*.052f)
+        if (!ambient) secondHand(c,cx,cy,r,sec*6f)
+        hub(c,cx,cy,r)
+    }
+
+    private fun hand(c: Canvas, cx: Float, cy: Float, len: Float, degrees: Float, width: Float) {
+        val a = Math.toRadians((degrees-90).toDouble())
+        val ex = cx + cos(a).toFloat()*len
+        val ey = cy + sin(a).toFloat()*len
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.color = Color.BLACK
+        paint.strokeWidth = width*1.48f
+        c.drawLine(cx,cy,ex,ey,paint)
+        paint.color = Color.rgb(105,110,108)
+        paint.strokeWidth = width*1.16f
+        c.drawLine(cx,cy,ex,ey,paint)
+        paint.color = ivory
+        paint.strokeWidth = width*.72f
+        c.drawLine(cx,cy,ex,ey,paint)
+    }
+
+    private fun secondHand(c: Canvas, cx: Float, cy: Float, r: Float, degrees: Float) {
+        val a = Math.toRadians((degrees-90).toDouble())
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = r*.012f
+        paint.color = accent
+        c.drawLine(cx-cos(a).toFloat()*r*.12f,cy-sin(a).toFloat()*r*.12f,cx+cos(a).toFloat()*r*.76f,cy+sin(a).toFloat()*r*.76f,paint)
+    }
+
+    private fun hub(c: Canvas, cx: Float, cy: Float, r: Float) {
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(18,20,20)
+        c.drawCircle(cx,cy,r*.060f,paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = r*.017f
+        paint.color = accent
+        c.drawCircle(cx,cy,r*.039f,paint)
+        paint.style = Paint.Style.FILL
+        paint.color = ivory
+        c.drawCircle(cx,cy,r*.012f,paint)
+    }
+
+    private fun text(c: Canvas, value: String, x: Float, y: Float, size: Float, color: Int, bold: Boolean) {
+        paint.shader = null
+        paint.style = Paint.Style.FILL
+        paint.typeface = Typeface.create("sans-serif-condensed", if (bold) Typeface.BOLD else Typeface.NORMAL)
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = size
+        paint.color = color
+        c.drawText(value,x,y,paint)
+    }
 }
