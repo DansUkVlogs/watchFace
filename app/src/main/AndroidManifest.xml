@@ -6,19 +6,18 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.BODY_SENSORS" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
-
-    <application
-        android:allowBackup="false"
-        android:label="Clinical Watch V2"
-        android:theme="@style/AppTheme">
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:screenOrientation="portrait">
+    <application android:allowBackup="false" android:label="Clinical Watch" android:theme="@style/AppTheme">
+        <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service android:name=".WatchDataService" android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/clinicalwatch" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>
