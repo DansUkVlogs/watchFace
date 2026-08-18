@@ -8,11 +8,13 @@ android {
     namespace = "uk.dansvlogs.clinicalwatch.companion"
     compileSdk = 36
     defaultConfig {
-        applicationId = "uk.dansvlogs.clinicalwatch.companion"
+        // Wear OS Data Layer only connects matching app identities across phone/watch.
+        // Keep a separate namespace for source code, but use the same applicationId as the watch APK.
+        applicationId = "uk.dansvlogs.clinicalwatch"
         minSdk = 30
         targetSdk = 36
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 3
+        versionName = "2.1"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
